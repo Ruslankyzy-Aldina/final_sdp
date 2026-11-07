@@ -29,7 +29,6 @@ import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.GridLayout;
 import java.io.UncheckedIOException;
-import java.util.List;
 
 public final class BookingFrame extends JFrame {
     private final BookingService service;
@@ -149,10 +148,8 @@ public final class BookingFrame extends JFrame {
     private void refreshView() {
         String selected = table.getSelectedRow() < 0 ? null : selectedId();
         tableModel.setRowCount(0);
-        List<Event> events = service.events();
         for (Booking booking : service.bookings()) {
-            Event event = events.stream().filter(item -> item.id().equals(booking.eventId()))
-                    .findFirst().orElseThrow();
+            Event event = service.findEvent(booking.eventId());
             String price;
             try {
                 price = calculator.calculate(booking).toPlainString();
@@ -182,8 +179,7 @@ public final class BookingFrame extends JFrame {
             Booking booking;
             if (table.getSelectedRow() >= 0) {
                 String id = selectedId();
-                booking = service.bookings().stream().filter(item -> item.id().equals(id))
-                        .findFirst().orElseThrow();
+                booking = service.findBooking(id);
             } else {
                 Event event = (Event) eventBox.getSelectedItem();
                 if (event == null) {

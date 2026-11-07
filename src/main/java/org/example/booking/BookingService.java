@@ -68,6 +68,14 @@ public final class BookingService {
         return List.copyOf(bookings.values());
     }
 
+    public Booking findBooking(String bookingId) {
+        return requireBooking(bookingId);
+    }
+
+    public Event findEvent(String eventId) {
+        return requireEvent(eventId);
+    }
+
     public Booking createBooking(String eventId, String customerName, int seatCount) {
         Event event = requireEvent(eventId);
         if (seatCount <= 0) {
