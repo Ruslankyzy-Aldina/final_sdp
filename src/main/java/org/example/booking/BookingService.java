@@ -1,5 +1,9 @@
 package org.example.booking;
 
+import org.example.storage.BookingSnapshot;
+import org.example.storage.InMemoryRepository;
+import org.example.storage.Repository;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -13,6 +17,34 @@ public final class BookingService {
     private final Map<String, Event> events = new LinkedHashMap<>();
     private final Map<String, Booking> bookings = new LinkedHashMap<>();
     private final Set<BookingListener> listeners = new LinkedHashSet<>();
+    private final Repository repository;
+
+    public BookingService() {
+        this(new InMemoryRepository());
+    }
+
+    public BookingService(Repository repository) {
+        this.repository = Objects.requireNonNull(repository, "repository");
+        BookingSnapshot saved = Objects.requireNonNull(repository.load(), "repository.load()");
+        for (Event event : saved.events()) {
+            if (events.putIfAbsent(event.id(), event) != null) {
+                throw new IllegalStateException("Duplicate event in repository: " + event.id());
+            }
+        }
+        for (Booking booking : saved.bookings()) {
+            if (!events.containsKey(booking.eventId())) {
+                throw new IllegalStateException("Booking references unknown event: " + booking.eventId());
+            }
+            if (bookings.putIfAbsent(booking.id(), booking) != null) {
+                throw new IllegalStateException("Duplicate booking in repository: " + booking.id());
+            }
+        }
+        for (Event event : events.values()) {
+            if (reservedSeats(event.id()) > event.capacity()) {
+                throw new IllegalStateException("Stored bookings exceed capacity: " + event.id());
+            }
+        }
+    }
 
     public void addEvent(Event event) {
         Objects.requireNonNull(event, "event");
@@ -20,6 +52,12 @@ public final class BookingService {
             throw new IllegalArgumentException("Event already exists: " + event.id());
         }
         events.put(event.id(), event);
+        try {
+            persist();
+        } catch (RuntimeException exception) {
+            events.remove(event.id());
+            throw exception;
+        }
     }
 
     public List<Event> events() {
@@ -41,6 +79,12 @@ public final class BookingService {
         Booking booking = new Booking(UUID.randomUUID().toString(), eventId, customerName,
                 seatCount, event.unitPrice(), BookingStatus.CREATED);
         bookings.put(booking.id(), booking);
+        try {
+            persist();
+        } catch (RuntimeException exception) {
+            bookings.remove(booking.id());
+            throw exception;
+        }
         notifyListeners(booking, null, BookingStatus.CREATED);
         return booking;
     }
@@ -65,6 +109,12 @@ public final class BookingService {
         }
         Booking updated = current.withStatus(newStatus);
         bookings.put(bookingId, updated);
+        try {
+            persist();
+        } catch (RuntimeException exception) {
+            bookings.put(bookingId, current);
+            throw exception;
+        }
         notifyListeners(updated, current.status(), newStatus);
         return updated;
     }
@@ -80,6 +130,10 @@ public final class BookingService {
 
     public void unsubscribe(BookingListener listener) {
         listeners.remove(listener);
+    }
+
+    private void persist() {
+        repository.save(new BookingSnapshot(events(), bookings()));
     }
 
     private int reservedSeats(String eventId) {
