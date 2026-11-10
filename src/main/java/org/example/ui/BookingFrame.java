@@ -32,6 +32,8 @@ import java.io.UncheckedIOException;
 public final class BookingFrame extends JFrame {
     private final EventFacade facade;
     private final SummaryPanel summaryPanel;
+    private final PackagePanel packagePanel;
+    private final EventListPanel eventListPanel;
     private final JComboBox<Event> eventBox;
     private final JComboBox<PricingOption> strategyBox = new JComboBox<>(PricingOption.values());
     private final JTextField customerField = new JTextField();
@@ -51,6 +53,8 @@ public final class BookingFrame extends JFrame {
         super("Бронирования");
         this.facade = new EventFacade(service);
         summaryPanel = new SummaryPanel(facade);
+        packagePanel = new PackagePanel(facade);
+        eventListPanel = new EventListPanel(facade, this::onEventsChanged);
         eventBox = new JComboBox<>(facade.events().toArray(Event[]::new));
         eventBox.setRenderer(new DefaultListCellRenderer() {
             @Override
@@ -108,6 +112,8 @@ public final class BookingFrame extends JFrame {
         JTabbedPane tabs = new JTabbedPane();
         tabs.addTab("Бронирования", split);
         tabs.addTab("Итог и экспорт", summaryPanel);
+        tabs.addTab("Мероприятия", eventListPanel);
+        tabs.addTab("Пакет услуг", packagePanel);
         add(tabs, BorderLayout.CENTER);
 
         JButton create = new JButton("Создать");
@@ -174,8 +180,23 @@ public final class BookingFrame extends JFrame {
         notificationArea.setText(String.join(System.lineSeparator(), facade.notifications()));
         notificationArea.setCaretPosition(notificationArea.getDocument().getLength());
         eventBox.repaint();
+        eventListPanel.refresh();
         updatePrice();
         refreshSummary();
+    }
+
+    /** Keeps the booking/package event selectors in sync after the event list changed. */
+    private void onEventsChanged() {
+        Event selected = (Event) eventBox.getSelectedItem();
+        eventBox.removeAllItems();
+        for (Event event : facade.events()) {
+            eventBox.addItem(event);
+            if (selected != null && event.id().equals(selected.id())) {
+                eventBox.setSelectedItem(event);
+            }
+        }
+        packagePanel.reloadEvents();
+        refreshView();
     }
 
     private void refreshSummary() {

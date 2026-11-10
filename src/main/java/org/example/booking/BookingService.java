@@ -60,6 +60,44 @@ public final class BookingService {
         }
     }
 
+    /** Replaces an existing event; capacity cannot drop below the seats already reserved. */
+    public void updateEvent(Event event) {
+        Objects.requireNonNull(event, "event");
+        Event previous = requireEvent(event.id());
+        if (event.capacity() < reservedSeats(event.id())) {
+            throw new IllegalStateException("Capacity is below reserved seats for event: " + event.id());
+        }
+        events.put(event.id(), event);
+        try {
+            persist();
+        } catch (RuntimeException exception) {
+            events.put(previous.id(), previous);
+            throw exception;
+        }
+    }
+
+    /** Removes an event; events referenced by any booking (including cancelled) are kept. */
+    public void removeEvent(String eventId) {
+        Event previous = requireEvent(eventId);
+        if (bookings.values().stream().anyMatch(booking -> booking.eventId().equals(eventId))) {
+            throw new IllegalStateException("Event has bookings: " + eventId);
+        }
+        Map<String, Event> before = new LinkedHashMap<>(events);
+        events.remove(eventId);
+        try {
+            persist();
+        } catch (RuntimeException exception) {
+            events.clear();
+            events.putAll(before);
+            throw exception;
+        }
+    }
+
+    public int reservedSeatCount(String eventId) {
+        requireEvent(eventId);
+        return reservedSeats(eventId);
+    }
+
     public List<Event> events() {
         return List.copyOf(events.values());
     }
