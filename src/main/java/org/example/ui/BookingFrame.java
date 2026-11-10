@@ -4,9 +4,8 @@ import org.example.booking.Booking;
 import org.example.booking.BookingService;
 import org.example.booking.BookingStatus;
 import org.example.booking.Event;
-import org.example.booking.NotificationLogListener;
 import org.example.booking.UiRefreshListener;
-import org.example.pricing.PriceCalculator;
+import org.example.facade.EventFacade;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -14,7 +13,6 @@ import javax.swing.JComboBox;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
-import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
@@ -22,6 +20,7 @@ import javax.swing.JSplitPane;
 import javax.swing.JTable;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
+import javax.swing.JTabbedPane;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingUtilities;
 import javax.swing.table.DefaultTableModel;
@@ -31,9 +30,8 @@ import java.awt.GridLayout;
 import java.io.UncheckedIOException;
 
 public final class BookingFrame extends JFrame {
-    private final BookingService service;
-    private final PriceCalculator calculator = new PriceCalculator(PricingOption.REGULAR.strategy());
-    private final NotificationLogListener log = new NotificationLogListener();
+    private final EventFacade facade;
+    private final SummaryPanel summaryPanel;
     private final JComboBox<Event> eventBox;
     private final JComboBox<PricingOption> strategyBox = new JComboBox<>(PricingOption.values());
     private final JTextField customerField = new JTextField();
@@ -51,15 +49,16 @@ public final class BookingFrame extends JFrame {
 
     public BookingFrame(BookingService service) {
         super("Бронирования");
-        this.service = service;
-        eventBox = new JComboBox<>(service.events().toArray(Event[]::new));
+        this.facade = new EventFacade(service);
+        summaryPanel = new SummaryPanel(facade);
+        eventBox = new JComboBox<>(facade.events().toArray(Event[]::new));
         eventBox.setRenderer(new DefaultListCellRenderer() {
             @Override
             public Component getListCellRendererComponent(javax.swing.JList<?> list, Object value,
                                                            int index, boolean selected, boolean focused) {
                 super.getListCellRendererComponent(list, value, index, selected, focused);
                 if (value instanceof Event event) {
-                    setText(event.name() + " (свободно: " + service.availableSeats(event.id()) + ")");
+                    setText(event.name() + " (свободно: " + facade.availableSeats(event.id()) + ")");
                 }
                 return this;
             }
@@ -69,8 +68,7 @@ public final class BookingFrame extends JFrame {
         setLocationRelativeTo(null);
         buildLayout();
         wireActions();
-        service.subscribe(log);
-        service.subscribe(new UiRefreshListener(() -> {
+        facade.subscribe(new UiRefreshListener(() -> {
             if (SwingUtilities.isEventDispatchThread()) {
                 refreshView();
             } else {
@@ -107,14 +105,17 @@ public final class BookingFrame extends JFrame {
         notifications.add(new JScrollPane(notificationArea));
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, bookings, notifications);
         split.setResizeWeight(0.7);
-        add(split, BorderLayout.CENTER);
+        JTabbedPane tabs = new JTabbedPane();
+        tabs.addTab("Бронирования", split);
+        tabs.addTab("Итог и экспорт", summaryPanel);
+        add(tabs, BorderLayout.CENTER);
 
         JButton create = new JButton("Создать");
         create.addActionListener(event -> runSafely(this::createBooking));
         JButton confirm = new JButton("Подтвердить");
-        confirm.addActionListener(event -> runSafely(() -> service.confirmBooking(selectedId())));
+        confirm.addActionListener(event -> runSafely(() -> facade.changeStatus(selectedId(), BookingStatus.CONFIRMED)));
         JButton cancel = new JButton("Отменить");
-        cancel.addActionListener(event -> runSafely(() -> service.cancelBooking(selectedId())));
+        cancel.addActionListener(event -> runSafely(() -> facade.changeStatus(selectedId(), BookingStatus.CANCELLED)));
         JPanel actions = new JPanel();
         actions.add(create);
         actions.add(confirm);
@@ -124,10 +125,14 @@ public final class BookingFrame extends JFrame {
 
     private void wireActions() {
         strategyBox.addActionListener(event -> {
-            calculator.setStrategy(((PricingOption) strategyBox.getSelectedItem()).strategy());
+            PricingOption option = (PricingOption) strategyBox.getSelectedItem();
+            facade.setPricingStrategy(option.strategy(), option.toString());
             refreshView();
         });
-        eventBox.addActionListener(event -> updatePrice());
+        eventBox.addActionListener(event -> {
+            updatePrice();
+            refreshSummary();
+        });
         seatSpinner.addChangeListener(event -> updatePrice());
         table.getSelectionModel().addListSelectionListener(event -> updatePrice());
     }
@@ -139,20 +144,18 @@ public final class BookingFrame extends JFrame {
         }
         String customer = customerField.getText().trim();
         int seats = (int) seatSpinner.getValue();
-        calculator.calculate(new Booking("preview", event.id(), customer, seats,
-                event.unitPrice(), BookingStatus.CREATED));
-        service.createBooking(event.id(), customer, seats);
+        facade.addBooking(event.id(), customer, seats);
         customerField.setText("");
     }
 
     private void refreshView() {
         String selected = table.getSelectedRow() < 0 ? null : selectedId();
         tableModel.setRowCount(0);
-        for (Booking booking : service.bookings()) {
-            Event event = service.findEvent(booking.eventId());
+        for (Booking booking : facade.bookings()) {
+            Event event = facade.findEvent(booking.eventId());
             String price;
             try {
-                price = calculator.calculate(booking).toPlainString();
+                price = facade.calculate(booking).toPlainString();
             } catch (IllegalArgumentException exception) {
                 price = "—";
             }
@@ -168,10 +171,16 @@ public final class BookingFrame extends JFrame {
                 }
             }
         }
-        notificationArea.setText(String.join(System.lineSeparator(), log.notifications()));
+        notificationArea.setText(String.join(System.lineSeparator(), facade.notifications()));
         notificationArea.setCaretPosition(notificationArea.getDocument().getLength());
         eventBox.repaint();
         updatePrice();
+        refreshSummary();
+    }
+
+    private void refreshSummary() {
+        Event selected = (Event) eventBox.getSelectedItem();
+        summaryPanel.refresh(selected == null ? null : selected.id());
     }
 
     private void updatePrice() {
@@ -179,7 +188,7 @@ public final class BookingFrame extends JFrame {
             Booking booking;
             if (table.getSelectedRow() >= 0) {
                 String id = selectedId();
-                booking = service.findBooking(id);
+                booking = facade.findBooking(id);
             } else {
                 Event event = (Event) eventBox.getSelectedItem();
                 if (event == null) {
@@ -189,7 +198,7 @@ public final class BookingFrame extends JFrame {
                 booking = new Booking("preview", event.id(), "preview", (int) seatSpinner.getValue(),
                         event.unitPrice(), BookingStatus.CREATED);
             }
-            priceLabel.setText("Цена: " + calculator.calculate(booking).toPlainString());
+            priceLabel.setText("Цена: " + facade.calculate(booking).toPlainString());
         } catch (IllegalArgumentException exception) {
             priceLabel.setText("Цена: " + exception.getMessage());
         }
@@ -207,7 +216,7 @@ public final class BookingFrame extends JFrame {
         try {
             action.run();
         } catch (IllegalArgumentException | IllegalStateException | UncheckedIOException exception) {
-            JOptionPane.showMessageDialog(this, exception.getMessage(), "Ошибка", JOptionPane.ERROR_MESSAGE);
+            ErrorDialog.show(this, exception);
         }
     }
 }
