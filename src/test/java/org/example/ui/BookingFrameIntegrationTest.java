@@ -33,8 +33,10 @@ class BookingFrameIntegrationTest {
             try {
                 List<Component> controls = descendants(frame).toList();
                 JTabbedPane tabs = first(controls, JTabbedPane.class);
-                assertEquals(2, tabs.getTabCount());
+                assertEquals(4, tabs.getTabCount());
                 assertEquals("Итог и экспорт", tabs.getTitleAt(1));
+                assertEquals("Мероприятия", tabs.getTitleAt(2));
+                assertEquals("Пакет услуг", tabs.getTitleAt(3));
                 first(controls, JTextField.class).setText("Customer");
                 button(controls, "Создать").doClick();
                 assertEquals(1, service.bookings().size());
