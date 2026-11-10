@@ -1,0 +1,11 @@
+{
+  "events": [
+    {"id": "concert", "name": "Демо-концерт", "capacity": 8, "unitPrice": 1000.00},
+    {"id": "workshop", "name": "Мастер-класс — последнее место", "capacity": 1, "unitPrice": 3000.00}
+  ],
+  "bookings": [
+    {"id": "demo-group", "eventId": "concert", "customerName": "Әсел и друзья", "seatCount": 5, "unitPrice": 1000.00, "status": "CONFIRMED"},
+    {"id": "demo-cancelled", "eventId": "concert", "customerName": "Отменённая бронь", "seatCount": 2, "unitPrice": 1000.00, "status": "CANCELLED"},
+    {"id": "demo-full", "eventId": "workshop", "customerName": "Дана", "seatCount": 1, "unitPrice": 3000.00, "status": "CREATED"}
+  ]
+}
