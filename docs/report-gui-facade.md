@@ -56,4 +56,4 @@ An earlier `mvn clean verify` run on 10 November 2026 reported 33 passing tests 
 - The summary includes the selected event only, regardless of the selected row in the overall booking table.
 - The GUI export uses the immutable summary snapshot visible when the export button is pressed.
 
-See the [main README](../README.md) for the consolidated diagrams, pattern table, and run instructions. OpenAI Codex helped prepare the code documentation.
+See the [main README](../README.md) for the consolidated diagrams, pattern table, and run instructions.

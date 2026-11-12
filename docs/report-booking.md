@@ -61,4 +61,4 @@ The consolidated class and sequence diagrams are in the [main README](../README.
 | `JsonStorageTest.restartRestoresEventsBookingsAndStatus` | Restart restores events, bookings, and statuses | Passed in the contributor test run |
 | `BookingServiceTest.capacityIsReservedOnCreationAndReleasedOnCancellation` | Excess request fails; cancellation frees seats | Passed in the contributor test run |
 
-The full integrated project was tested on 12 November 2026 with JDK 25 and Maven 3.9.11: **59 tests, 0 failures, 0 errors, 0 skipped; BUILD SUCCESS**. Run `mvn clean test` to reproduce it. OpenAI Codex helped prepare the documentation.
+The full integrated project was tested on 12 November 2026 with JDK 25 and Maven 3.9.11: **59 tests, 0 failures, 0 errors, 0 skipped; BUILD SUCCESS**. Run `mvn clean test` to reproduce it.

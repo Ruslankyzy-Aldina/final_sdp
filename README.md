@@ -150,4 +150,4 @@ The full integrated branch was verified on 12 November 2026 with JDK 25 and Mave
 - The illustrated DOCX report includes diagrams and interface screenshots. The course requires a PDF report, which still needs to be exported and submitted. The README diagrams provide class and sequence views in Mermaid.
 - The GUI's file chooser and overwrite confirmation require a manual check in a graphical environment.
 
-The project documentation was prepared with assistance from OpenAI Codex. Java/Swing, Jackson, JUnit, and Maven are used in the implementation.
+Java/Swing, Jackson, JUnit, and Maven are used in the implementation.

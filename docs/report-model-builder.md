@@ -59,5 +59,3 @@ Other test classes cover `Participant`, `InputParser`, event CRUD and rollback, 
 - Events and bookings are saved through `JsonStorage`; configured service packages are held in `EventFacade` memory and are not saved to `bookings.json`.
 - Legacy events without date/location display placeholders. Those fields must be supplied when editing a legacy event.
 - The GUI and validation messages are currently in Russian; this report and the repository documentation are in English.
-
-OpenAI Codex helped prepare the code documentation.
