@@ -1,106 +1,59 @@
-# Участник В: Factory Method, Facade, Summary и экспорт
+# Factory Method, Facade, summary, and export
 
-## Введение
+**Contributor:** Konys Ramazan (member C). This part adds the event summary, TXT/JSON/HTML export, and GUI integration with the existing booking, pricing, and storage services.
 
-Event Studio позволяет бронировать места на мероприятиях, менять статус брони
-и просматривать стоимость. Дополнение В завершает сценарий просмотра итога и
-сохранения его в переносимом формате, используя существующие сервисы Б.
+## Factory Method
 
-## Паттерны
-
-| Паттерн | Тип | Реализация | Назначение |
-| --- | --- | --- | --- |
-| Factory Method | Порождающий | `ExporterFactory`, `DefaultExporterFactory`, `ReportExporter`, `TxtExporter`, `JsonExporter`, `HtmlExporter` | Отделяет создание экспортёра от операции экспорта |
-| Facade | Структурный | `EventFacade` | Даёт GUI общий доступ к бронированиям, стратегиям, уведомлениям и экспорту |
+`ExporterFactory` is the abstract creator. Its `export` operation calls the overridable `createExporter(format)` method and then delegates to the returned `ReportExporter` product. `DefaultExporterFactory` creates `TxtExporter`, `JsonExporter`, or `HtmlExporter` according to the selected format. Unknown formats are rejected. A test creator proves that the export operation invokes the overridden factory method.
 
 ```java
 public abstract class ExporterFactory {
     public abstract ReportExporter createExporter(String format);
-    public final void export(Summary summary, Path path, String format) throws IOException {
+
+    public final void export(Summary summary, Path path, String format)
+            throws IOException {
         createExporter(format).export(summary, path);
     }
 }
 ```
 
-`DefaultExporterFactory` переопределяет фабричный метод и создаёт TXT/JSON/HTML.
-Тест с собственным Creator доказывает, что операция `export` вызывает
-переопределённый метод. Для нового формата можно добавить новый продукт и Creator.
+The three exporters write UTF-8. JSON uses Jackson, and HTML escapes user text. Export writes a temporary file beside the chosen destination and then replaces the target. The GUI asks before overwriting and performs file writing in the background so the window remains responsive.
+
+## Facade
+
+`EventFacade` gives the GUI one API for booking, event management, pricing, package configuration, summary creation, and export. It delegates booking rules to the original `BookingService`; capacity checks, status persistence, and Observer notifications remain there. `BookingFrame` uses the facade without introducing a second application entry point.
 
 ```java
 public Booking addBooking(String eventId, String customer, int seats) {
-    previewPrice(eventId, customer, seats);
-    return service.createBooking(eventId, customer, seats);
+    Participant participant = new Participant(customer);
+    previewPrice(eventId, participant.name(), seats);
+    return service.createBooking(eventId, participant.name(), seats);
 }
+
 public Summary getSummary(String eventId) {
-    return Summary.of(service.findEvent(eventId), service.bookings(), calculator, pricing);
+    return Summary.of(service.findEvent(eventId), service.bookings(),
+                      calculator, pricing);
 }
 ```
 
-Фасад делегирует изменение статуса оригинальному BookingService, который сохраняет
-данные через Repository/JsonStorage и уведомляет Observer-подписчиков. Проверка
-вместимости остаётся в этом сервисе. Фасад не дублирует хранилище и его правила.
-Существующий `Main` передаёт прежний сервис в прежний `BookingFrame`; тот создаёт
-фасад для своих действий. Сигнатура конструктора окна совместима с исходным Main.
+`Summary` is an immutable snapshot of the selected event. It lists unique customer-name strings, booking lines, reserved and available seats, and the price total under the current strategy. Cancelled bookings remain visible but count as zero seats and zero price. If group pricing cannot calculate an active booking with fewer than five seats, the summary shows an error and export is disabled; no hidden fallback price is used.
 
-## Пользовательские сценарии и тесты
+## Scenarios and recorded tests
 
-| № | Входные данные / действия | Ожидаемый результат | Автоматическая проверка |
-| --- | --- | --- | --- |
-| 7 | Концерт на 8 мест по 1000 KZT; активная бронь на 5 мест; отменённая на 2; студенческая стратегия; экспорт TXT/JSON/HTML | Три читаемых UTF-8 формата; итог 4500.00; занято 5; свободно 3; отменённая бронь сохранена с нулевой суммой | `EventFacadeTest.scenario7ExportsSelectedFormatWithCorrectTotalsAndUnicode` |
-| 8 | Бронь на все 8 мест, затем ещё на одно | IllegalStateException; прежнее число броней, файл и уведомления не меняются; после отмены места доступны; перезапуск восстанавливает состояние | `EventFacadeTest.scenario8RejectsOverCapacityWithoutChangingStorageOrObservers` |
+| Scenario | Input and expected result | Recorded outcome |
+| --- | --- | --- |
+| Export formats | Eight-seat concert at 1,000 KZT; five-seat active booking; two-seat cancelled booking; student pricing; export TXT/JSON/HTML | `EventFacadeTest.scenario7ExportsSelectedFormatWithCorrectTotalsAndUnicode` passed; 4,500.00 total, five occupied and three free seats |
+| Over-capacity boundary | Fill all seats and request one more; then cancel the first booking | `EventFacadeTest.scenario8RejectsOverCapacityWithoutChangingStorageOrObservers` passed; excess request leaves data and notifications unchanged |
+| Exporter selection | Request three formats and an unsupported format | `ExporterFactoryTest` covers product selection and error handling |
+| GUI integration | Change pricing and booking status in the original window | `BookingFrameIntegrationTest` covers this on a graphical Swing environment |
 
-Дополнительные проверки: выбор продукта фабрикой, неизвестный формат, пользовательский
-Creator, пустой итог, одинаковые имена, фильтрация другого мероприятия, снимок после
-изменения стратегии, неизменяемые списки, три стратегии, ошибки записи и удаление
-временных файлов, HTML/JSON-экранирование, загрузка sample data оригинальным JsonStorage.
-`SummaryPanelTest` проверяет обновление текста и доступность экспорта на Swing EDT.
-Исходные тесты Strategy, Observer, вместимости, хранилища и отката после ошибки
-сохранения остаются частью того же Maven test suite.
+An earlier `mvn clean verify` run on 10 November 2026 reported 33 passing tests for the booking/export integration. The **full integrated project** was tested on 12 November 2026 with JDK 25 and Maven 3.9.11: **59 tests, 0 failures, 0 errors, 0 skipped; BUILD SUCCESS** (`mvn clean test`). `BookingFrameIntegrationTest` requires a graphical environment and is skipped in headless environments. The GUI file chooser was not exercised by an automated test.
 
-Фактический результат проверки 10.11.2026: `mvn clean verify` на OpenJDK 25.0.1
-и Maven 3.9.12 — **33 теста, 0 failures, 0 errors, 0 skipped**, JAR собран.
-Включены 12 исходных проверок Б и 21 новая проверка В. Сценарии 7/8 прошли.
-`BookingFrameIntegrationTest` создаёт исходное окно и проверяет действия
-создания/подтверждения/отмены, смену стратегии, уведомления и итог на Swing EDT;
-этот тест требует графической среды и пропускается в headless-окружении.
-Диалог выбора файла вручную в этой проверке не проходился.
+## Limitations
 
-Для ручного сценария 7 загрузите демонстрационные данные согласно README,
-выберите концерт и студенческую стратегию, откройте вкладку итога и поочерёдно
-сохраните три формата. Для сценария 8 выберите заполненный мастер-класс,
-обычную стратегию и попробуйте добавить одну бронь: приложение должно показать
-ошибку и сохранить прежнюю таблицу. Визуальную проверку диалогов выбора файла
-нужно отличать от автоматических тестов панели и экспортёров.
+- The selected pricing strategy is a view setting, not a price stored with each booking.
+- Participants in the summary are unique name strings; identical names do not represent separate identities.
+- The summary includes the selected event only, regardless of the selected row in the overall booking table.
+- The GUI export uses the immutable summary snapshot visible when the export button is pressed.
 
-## Границы интеграции
-
-Код участника Б в `booking/`, `pricing/`, `storage/`, `PricingOption`, его тесты
-и отчёт не заменяются. Новые модели Event/Booking/Participant не вводятся.
-Стратегии по-прежнему являются текущим выбором просмотра, а не сохранённой ценой
-каждой брони. Если групповая стратегия неприменима к активной брони, экспорт
-блокируется с объяснением. В отчётах отменённые брони имеют нулевую сумму;
-существующая таблица бронирований сохраняет исходный способ показа цены.
-
-Итог включает только выбранное в верхнем поле мероприятие, независимо от строки,
-выбранной в общей таблице бронирований. Экспорт сохраняет неизменяемый снимок
-на момент нажатия кнопки. Подтверждение перезаписи запрашивается в GUI; программный
-API экспортёров поддерживает замену существующего файла.
-
-В базе `eb25af7` отсутствует работа А с Builder/Decorator. Её нельзя объявлять
-готовой или заменять собственными реализациями в рамках этой части. Старую ветку
-из ZIP не переносили целиком: она удаляла сервисы и хранилище Б. Из неё повторно
-использованы интерфейс и Creator экспортёров и механизм записи временного файла;
-остальная интеграция адаптирована к актуальной базе.
-
-## Заключение и Future Work
-
-Части Б и В работают в одной сборке с одним Main. Factory Method изолирует
-форматы файлов, Facade связывает GUI с существующими правилами, а Summary
-даёт единый снимок для просмотра и экспорта. Следующие общие шаги команды:
-принять PR, подключить модели и Builder/Decorator А, согласовать идентификаторы
-участников и сохранение выбранного тарифа, затем дополнить итоговый командный отчёт.
-Возможные расширения: CSV-экспорт и дополнительные стратегии цены.
-
-Код и документация подготовлены с помощью OpenAI Codex. Использованы Java/Swing,
-Jackson и JUnit, уже применяемые в проекте; Maven Exec Plugin добавляет удобный
-запуск существующего Main.
+See the [main README](../README.md) for the consolidated diagrams, pattern table, and run instructions. OpenAI Codex helped prepare the code documentation.

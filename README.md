@@ -1,98 +1,153 @@
 # Event Studio
 
-Единое Java/Swing-приложение: бронирования, Strategy и Observer участника Б,
-дополненные Factory Method, Facade, итогом и экспортом участника В.
+Event Studio is a Java 25 desktop application for creating events, configuring optional service packages, booking seats, changing booking status, viewing event summaries, and exporting a summary as TXT, JSON, or HTML. It uses six design patterns in one Swing application.
 
-## Запуск
+## Requirements and launch
 
-```text
-mvn test
-mvn compile exec:java
+- JDK 25 and Maven 3.9 or newer. Check `java -version` and `mvn -version`.
+- Run tests: `mvn clean test`.
+- Run the GUI: `mvn compile exec:java`.
+- In IntelliJ IDEA, open the directory containing `pom.xml`, select JDK 25, and run `org.example.Main`.
+
+The ordinary JAR created by `mvn package` does not bundle dependencies; use the Maven command or an IDE. On the first launch, `Main` creates two demonstration events. The application stores events and bookings in `data/bookings.json` and loads them at startup.
+
+For a demonstration with existing bookings, close the application, create a **separate demo copy** of the project, and copy [`sample-data/bookings.json`](sample-data/bookings.json) to `data/bookings.json` in that copy. Do not overwrite existing data. The sample concert has eight seats, five reserved seats, and one cancelled booking. Its total under regular/student/group pricing is 5,000.00 / 4,500.00 / 4,250.00 KZT.
+
+## Main user journey
+
+1. In **Events**, create or select an event. Enter its date (`YYYY-MM-DD`), location, capacity, and ticket price. You can edit an event or delete one with no bookings.
+2. In **Service package**, set a base cost and select catering, photographer, or decor. The package description and cost update immediately. Save it for the selected event.
+3. In **Bookings**, choose an event, customer, seat count, and pricing strategy. Review the price, create a booking, and confirm or cancel it. The booking list and notification panel update when its status changes.
+4. In **Summary and export**, review customers, booking lines, occupied/available seats, and the total for the selected event. Choose TXT, JSON, or HTML and export the visible summary.
+
+Created and confirmed bookings reserve seats; cancelled bookings release them and contribute zero to the summary total. Group pricing requires at least five seats **in each active booking**. If it cannot price a booking, the summary shows an error and export is unavailable until a suitable strategy is selected. The chosen pricing strategy affects the current view and summary; it is not stored in a booking.
+
+## Architecture and patterns
+
+The Swing UI calls `EventFacade`, which coordinates `BookingService`, `PriceCalculator`, `EventBuilder`, `ServicePackage`, `Summary`, and `ExporterFactory`. `BookingService` owns capacity and status rules, persists events and bookings through `Repository`/`JsonStorage`, and notifies `BookingListener` subscribers after a successful change.
+
+| Pattern | Problem it solves | Main participants | Demonstration | Responsible member |
+| --- | --- | --- | --- | --- |
+| Builder (creational) | Build a valid event from several form fields | `EventBuilder`, `Event` | Create an event; show combined validation errors | Abilkhaiyr Akmaral (A) |
+| Factory Method (creational) | Select an exporter without changing the export operation | `ExporterFactory`, `DefaultExporterFactory`, `ReportExporter`, TXT/JSON/HTML exporters | Export the same summary in three formats | Konys Ramazan (C) |
+| Decorator (structural) | Combine optional package services and costs | `ServiceOption`, `BasePackage`, `OptionDecorator`, three concrete decorators | Toggle extras and compare cost/description | Abilkhaiyr Akmaral (A) |
+| Facade (structural) | Give the GUI one entry point to coordinated operations | `EventFacade` and delegated services | Create a booking, view summary, and export | Konys Ramazan (C) |
+| Strategy (behavioral) | Change ticket-pricing rules at runtime | `PricingStrategy`, `PriceCalculator`, regular/student/group strategies | Switch strategies for the same booking | Ruslankyzy Aldina (B) |
+| Observer (behavioral) | React to booking status changes | `BookingService`, `BookingListener`, `UiRefreshListener`, `NotificationLogListener` | Create/confirm/cancel and observe UI/log updates | Ruslankyzy Aldina (B) |
+
+### Class diagram
+
+```mermaid
+classDiagram
+    direction LR
+    class EventBuilder
+    class Event
+    EventBuilder ..> Event : builds
+    class ServiceOption {
+        <<interface>>
+    }
+    class BasePackage
+    class OptionDecorator
+    class CateringDecorator
+    class PhotographerDecorator
+    class DecorDecorator
+    ServiceOption <|.. BasePackage
+    ServiceOption <|.. OptionDecorator
+    OptionDecorator o--> ServiceOption : wraps
+    OptionDecorator <|-- CateringDecorator
+    OptionDecorator <|-- PhotographerDecorator
+    OptionDecorator <|-- DecorDecorator
+    class PricingStrategy {
+        <<interface>>
+    }
+    class PriceCalculator
+    PricingStrategy <|.. RegularPricing
+    PricingStrategy <|.. StudentDiscountPricing
+    PricingStrategy <|.. GroupDiscountPricing
+    PriceCalculator --> PricingStrategy
+    class BookingListener {
+        <<interface>>
+    }
+    BookingListener <|.. UiRefreshListener
+    BookingListener <|.. NotificationLogListener
+    BookingService --> BookingListener : notifies
+    class ExporterFactory
+    class ReportExporter {
+        <<interface>>
+    }
+    ExporterFactory <|-- DefaultExporterFactory
+    ExporterFactory ..> ReportExporter : creates
+    ReportExporter <|.. TxtExporter
+    ReportExporter <|.. JsonExporter
+    ReportExporter <|.. HtmlExporter
+    BookingFrame --> EventFacade
+    EventFacade --> BookingService
+    EventFacade --> PriceCalculator
+    EventFacade ..> EventBuilder
+    EventFacade --> ServicePackage
+    EventFacade --> ExporterFactory
+    BookingService --> Repository
+    Repository <|.. JsonStorage
 ```
 
-Требуются JDK 25 и Maven 3.9+. Проверьте `java -version` и `mvn -version`:
-оба должны использовать Java 25. В IntelliJ IDEA откройте папку с `pom.xml`,
-выберите JDK 25 и запустите существующий класс `org.example.Main`.
-`mvn compile exec:java` использует тот же Main и подключает зависимости.
-Обычный JAR после `mvn package` не содержит зависимостей для отдельного запуска.
+### Sequence diagram: create and confirm a booking
 
-Интерфейс позволяет выбрать событие, число мест и стратегию цены, создать
-бронь, подтвердить или отменить её. Панель уведомлений показывает изменения
-статуса. Данные хранятся в `data/bookings.json`.
+```mermaid
+sequenceDiagram
+    actor User
+    participant UI as BookingFrame
+    participant Facade as EventFacade
+    participant Price as PriceCalculator
+    participant Service as BookingService
+    participant Store as JsonStorage
+    participant Log as NotificationLogListener
+    participant Refresh as UiRefreshListener
+    User->>UI: Select event, seats and pricing strategy
+    UI->>Facade: setPricingStrategy(...)
+    UI->>Facade: addBooking(eventId, customer, seats)
+    Facade->>Price: calculate(preview)
+    Price-->>Facade: Price
+    Facade->>Service: createBooking(...)
+    Service->>Service: Check capacity
+    Service->>Store: save(snapshot)
+    Service->>Log: onStatusChanged(null, CREATED)
+    Service->>Refresh: onStatusChanged(null, CREATED)
+    Refresh->>UI: Refresh booking list and notifications
+    User->>UI: Confirm booking
+    UI->>Facade: changeStatus(id, CONFIRMED)
+    Facade->>Service: changeStatus(id, CONFIRMED)
+    Service->>Store: save(updated snapshot)
+    Service->>Log: onStatusChanged(CREATED, CONFIRMED)
+    Service->>Refresh: onStatusChanged(CREATED, CONFIRMED)
+```
 
-Подробная sequence diagram, таблица сценариев и фрагменты кода находятся в
-`docs/report-booking.md`.
+## Test scenarios and recorded results
 
-## Итог и экспорт — участник В
+| # | Input / action | Expected result | Recorded result |
+| --- | --- | --- | --- |
+| 1 | Create an event, configure extras, book and confirm, edit and reload | Event/booking restored; totals and capacity correct | Passed in `EventCatalogScenarioTest` |
+| 2 | Price one five-seat booking using regular, student, and group rules | 5,000 / 4,500 / 4,250 KZT | Passed in `PriceCalculatorTest` |
+| 3 | Change the pricing choice in the UI | Preview reflects the selected strategy | Passed in `PricingOptionTest` |
+| 4 | Create, confirm, cancel, then restart | Listeners receive all transitions; JSON restores state | Passed in booking and storage tests |
+| 5 | Submit a blank event name | Validation error; no event saved | Passed in `EventCatalogScenarioTest` |
+| 6 | Submit zero/negative capacity or price | Validation error; no state change | Passed in `EventCatalogScenarioTest` |
+| 7 | Export a student-priced summary in TXT, JSON, HTML | Three readable files; total 4,500 KZT; 5 of 8 seats reserved | Passed in `EventFacadeTest` |
+| 8 | Book beyond capacity and then cancel a booking | Excess booking rejected; cancellation releases seats | Passed in `EventFacadeTest` |
 
-1. Выберите мероприятие и стратегию цены в верхней части существующего окна.
-2. Создайте, подтвердите или отмените бронь на вкладке «Бронирования».
-3. Откройте «Итог и экспорт»: показаны выбранное мероприятие, имена клиентов,
-   брони, занятые/свободные места и общая стоимость.
-4. Выберите TXT, JSON или HTML, нажмите «Экспорт / Export» и выберите файл.
-   Расширение добавляется автоматически; замена существующего файла требует
-   подтверждения в приложении. Ошибка записи показывается в общем диалоге.
+The full integrated branch was verified on 12 November 2026 with JDK 25 and Maven 3.9.11: **59 tests, 0 failures, 0 errors, 0 skipped; BUILD SUCCESS** (`mvn clean test`). This includes the booking, pricing, Builder, Decorator, Factory Method, Facade, export, validation, and Swing UI test classes. Run the same command locally to reproduce the result.
 
-Экспорт использует UTF-8 и снимок отображённого итога. JSON формируется Jackson,
-HTML экранирует пользовательский текст. Файл сначала записывается во временный
-файл рядом с назначением, затем заменяет целевой файл. Каталог назначения должен
-существовать. Запись выполняется в фоне, не блокируя окно.
+## Detailed English reports
 
-Правила расчёта сохранены: выбранная стратегия пересчитывает цену для просмотра,
-но не записывается в бронь. Итог использует ту же выбранную стратегию для всех
-активных броней мероприятия. Отменённые брони остаются в истории, занимают ноль
-мест и вносят ноль в итог. Групповая скидка требует от пяти мест **в каждой**
-активной брони. Если условие не выполнено, итог сообщает ошибку, экспорт недоступен;
-выберите обычную/студенческую стратегию. Скрытого перехода к другой цене нет.
+- [Illustrated project report (DOCX)](docs/Event-Studio-Project-Report.docx)
+- [Strategy, Observer, booking and JSON storage](docs/report-booking.md)
+- [Factory Method, Facade, summary and export](docs/report-gui-facade.md)
+- [Builder, Decorator, validation and event management](docs/report-model-builder.md)
 
-В текущей модели участники представлены именами клиентов в брони. Список имён
-в итоге уникален по строке, поэтому одинаковые имена не являются отдельными
-идентификаторами людей. `Participant` (часть А) проверяет имя при создании брони.
+## Current limitations and submission materials
 
-## Мероприятия и пакеты услуг — участник А
+- Events and bookings survive a restart; configured service packages currently live only in `EventFacade` memory and must be configured again after restart.
+- The summary treats customer names as strings, so two people with the same name are not distinct participant identities.
+- The illustrated DOCX report includes diagrams and interface screenshots. The course requires a PDF report, which still needs to be exported and submitted. The README diagrams provide class and sequence views in Mermaid.
+- The GUI's file chooser and overwrite confirmation require a manual check in a graphical environment.
 
-1. Вкладка «Мероприятия»: список с датой, местом, вместимостью и свободными местами.
-   Выберите строку, чтобы заполнить форму; «Создать мероприятие», «Сохранить
-   изменения», «Удалить мероприятие». Дата вводится как `ГГГГ-ММ-ДД`.
-2. Мероприятие собирается через `EventBuilder` (Builder); ошибки ввода (пустые поля,
-   отрицательные значения, дата в прошлом, вместимость меньше забронированного,
-   удаление мероприятия с бронями) показываются в диалоге одним списком.
-3. Вкладка «Пакет услуг»: базовая стоимость + кейтеринг, фотограф, декор (Decorator).
-   Итог и состав пересчитываются сразу; «Сохранить пакет» запоминает его для
-   мероприятия на время работы приложения.
-
-Подробнее: [docs/report-model-builder.md](docs/report-model-builder.md) — архитектура,
-class diagram всех паттернов, валидация и сценарии 1, 5, 6.
-
-## Демонстрационные данные
-
-При первом запуске существующий Main уже создаёт два мероприятия, если хранилище
-пусто. Для демонстрации с готовыми бронями используйте `sample-data/bookings.json`:
-закройте приложение и **в отдельной демонстрационной копии проекта** скопируйте
-этот файл в `data/bookings.json`, предварительно создав каталог `data`.
-Существующие пользовательские данные не перезаписывайте.
-
-В демо-концерте занято 5 из 8 мест, итог обычной стратегии — 5000.00 KZT,
-студенческой — 4500.00, групповой — 4250.00. Отменённая бронь на 2 места
-сохранена в истории. Мастер-класс уже заполнен — он подходит для сценария 8.
-
-## Интеграция и проверка
-
-Основа — `feature/booking-storage`, коммит `eb25af7`. Дополнение подготовлено
-в `feature/gui-facade` для Pull Request в общую ветку. Каждая сборка этой ветки
-уже содержит базу и дополнение вместе; для использования функций переключать
-ветки не требуется. В общей ветке дополнение появится после принятия PR.
-
-- Второй точки входа нет; `Main` создаёт демо-мероприятия через `EventBuilder`.
-- Исходные `booking/`, `pricing/`, `storage/` и их тесты сохранены без изменений.
-- `BookingFrame` дополнен вкладкой и обращается к сервису через `EventFacade`;
-  существующие действия, стратегии и уведомления сохранены.
-- `ExporterFactory` — абстрактный Creator с фабричным методом `createExporter`;
-  `DefaultExporterFactory` выбирает реализации `ReportExporter`.
-- `Summary` — неизменяемый снимок существующих Event/Booking, без новой базы данных.
-- Builder/Decorator участника А добавлены в ветке `feature/model-builder`
-  поверх частей Б и В (вкладки «Мероприятия» и «Пакет услуг»).
-
-Запустите `mvn clean test` (включает исходные тесты Б и новые тесты В).
-Описание сценариев 7/8, ограничений и вклада В: [docs/report-gui-facade.md](docs/report-gui-facade.md).
-Исходный отчёт Б: [docs/report-booking.md](docs/report-booking.md).
+The project documentation was prepared with assistance from OpenAI Codex. Java/Swing, Jackson, JUnit, and Maven are used in the implementation.
